@@ -125,3 +125,27 @@ Main menu
 - **Change it any time:** the pause menu has a `CPU LEVEL` row (Left/Right, 1-player matches only) that applies immediately; the match-over screen has `D` / tap to change it before the rematch; Settings keeps the same `CPU DIFFICULTY` row.
 - The last level you used is remembered in the browser (`localStorage`).
 - The level is shown in the match HUD (`CPU HARD`) and on the fighter-select screen.
+
+## Match flow, loading screens and the Dojo (latest changes)
+
+- **Match-over screen** (VS CPU and 2 Players): clickable `REMATCH`, `CHANGE FIGHTERS` and `EXIT` buttons. Keyboard still works: `W/S` + Enter, `R` rematch, `C` change fighters, Esc exit. In 1-player the CPU level can still be changed here (`D` or click).
+- **Stage select** now needs a confirmation: clicking a stage only selects it (and previews its music); press **START FIGHT** (or Enter) to continue.
+- **Loading screen** appears before every fight (after the stage, on a rematch) and before the Combo Dojo. It shows the fighters, a progress bar and a tip, preloads the fighters' sprite sheets and the stage music, lasts at least ~1.8 seconds, and has a hard time limit so a slow download can never freeze the game. Esc goes back.
+- **Combo Dojo**
+  - The challenge panel now grows with the combo, so the move boxes always stay inside it.
+  - Clearing a challenge no longer loops. Challenges 1-7 ask `NEXT CHALLENGE` or `EXIT`; challenge 8 asks `RESTART CHALLENGES` or `EXIT`. Practice is frozen while you decide.
+  - The Dojo pause menu is `RESUME`, `EXIT` (asks Yes/No) and `SETTINGS`.
+- **Blocking** shows a guard pose and a pale shield in front of the fighter while the block button (`V` / `/`) or back is held.
+
+## Arcade modes (main menu -> ARCADE MODES, or press `M` / `3`)
+
+| Mode | How it works | Saved in this browser |
+|---|---|---|
+| **Arcade Ladder** | 5 fights against 5 different rivals, best of 3 rounds, on a different stage each time. The CPU level ramps up (Easy start: Easy, Easy, Normal, Normal, Hard; it never goes above Hard). 2 continues. | Best clear time, number of clears |
+| **Survival** | Endless one-round fights. You recover 30% of your max health after each win and keep your remaining health. CPU gets stronger every 3 wins. One loss ends the run. | Best win streak (also counted if you quit mid-run) |
+| **Time Attack** | The 5-fight ladder, but one round per fight, no continues. The clock only runs while you are actually fighting (not during intros, loading or K.O. screens). | Best time (only completed runs count) |
+| **Extreme Battle** | A normal 1-player match (with stage select) where a rule changes the game: **Low Gravity**, **Turbo**, **Glass Cannon** (x2.5 damage), **Super Fever** (full meter, fills 3x faster), **Sudden Drain** (health slowly drains, never to zero), or **Chaos** (a new random rule every round). | - |
+
+Flow: Arcade Modes -> (CPU level) -> fighter select -> the run starts straight away (opponents are chosen for you, so there is no CPU pick or stage screen). Between fights a loading screen shows who is next. The pause menu in a run is `RESUME / RESTART RUN / EXIT RUN / SETTINGS`. After a run you can `PLAY AGAIN`, `CHANGE FIGHTER` or `EXIT`.
+
+Where to change things: `MODE_CARDS`, `EXTREME_MODS`, `RUN_FIGHTS`, `RUN_CONTINUES` in `src/config.js`; run logic is in the "arcade modes" section of `src/game.js`; rule effects are in `fighter.js` (speed, gravity), `combat.js` (damage, meter) and `game.js` (drain, starting meter).
