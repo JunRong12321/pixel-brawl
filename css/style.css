@@ -98,3 +98,7 @@ body[data-mode=menu]
 }
 
 body[data-mode=difficulty] #pad{visibility:hidden}
+
+body[data-mode=loading] #pad,body[data-mode=dojoSelect] #pad{visibility:hidden}
+
+body[data-mode=modes] #pad,body[data-mode=extremePick] #pad,body[data-mode=runEnd] #pad{visibility:hidden}
