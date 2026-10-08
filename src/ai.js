@@ -1,6 +1,6 @@
 export function cpuInput(w, f, o) {
   const a = f.ai, d = Math.abs(o.x - f.x), out = {};
-  const level = Math.max(0, Math.min(2, w.difficulty ?? 1));
+  const level = Math.max(0, Math.min(2, w.cpuLevel ?? w.difficulty ?? 1));
   const toward = o.x > f.x ? 'r' : 'l', away = toward === 'r' ? 'l' : 'r', r = Math.random();
   const waitBias = [0.34, 0.18, 0.06][level], reaction = [0.015, 0.05, 0.12][level];
   if (--a.t <= 0) {

@@ -1,14 +1,27 @@
 import { W, H, STEP, THEMES, MENU_BUTTONS, diffCardRect, MATCH_DIFF, DOJO_START, DOJO_FIGHTER_PREV, DOJO_FIGHTER_NEXT, dojoComboRect, SETTINGS_ITEMS, settingsRect, settingSliderRect, INTRO_ROUND_AT, INTRO_READY_AT, INTRO_FIGHT_AT } from './config.js';
 import { themeMove, themePick, themeRandom, themeConfirm, themeClick, openDifficulty, cycleDifficulty, difficultyConfirm, pauseItems, createWorld, startMatch, toMenu, step, openSelect, selMove, selLock, selRandom, selectClick, pause, resume, pauseChoose, pauseClick, openSettings, closeSettings, settingsChoose, openTutorial, tutorialChoose, openDojo, dojoChangeFighter, dojoChangeCombo, startDojo, resetDojo } from './game.js';
 import { readPlayer, initInput, clearEdges, pollGamepads } from './input.js';
-import { sfx, announcer, announceWinner, getAudioPreferences, unlockAudio, setAudioPreferences, setAudioMode } from './audio.js';
-import { render } from './render.js';
+import { sfx, announcer, announceWinner, getAudioPreferences, unlockAudio, setAudioPreferences, setAudioMode, preloadTheme } from './audio.js';
+import { render, preloadFighters } from './render.js';
+import { CHARS } from './config.js';
+import { openModes, modeMove, modeChoose, extremeMove, extremePick, extremeConfirm, runEndMove, runEndChoose, runEndClick, runEndItems } from './game.js';
+import { MODE_CARDS, modeCardRect, modRect, MOD_START, defaultRecords } from './config.js';
+import { launchDojo, cancelLoading, loadingFighters, dojoChoiceMove, dojoChoose, dojoChoiceClick, matchMove, matchChoose, matchClick } from './game.js';
 
 const canvas = document.getElementById('game');
 const g = canvas.getContext('2d', { alpha: false, desynchronized: true });
 const world = createWorld(sfx);
+// Loading screen hook: fetch the chosen fighters' sprites and the stage music, then let the game start (see game.js beginLoading).
+world.preload = (load, w) => {
+  const names = loadingFighters(w).map(i => CHARS[i].name);
+  Promise.all([preloadFighters(names, p => { load.progress = p; }), load.kind === 'dojo' ? null : preloadTheme(w.theme)])
+    .catch(() => {}).finally(() => { load.ready = true; });
+};
 world.audio = getAudioPreferences();
 try { world.reducedMotion = localStorage.getItem('pixel-brawl-reduced-motion') === 'true'; } catch {}
+let savedRecords = '';
+try { const r = JSON.parse(localStorage.getItem('pixel-brawl-records') || 'null'); if (r) { const d = defaultRecords(); world.records = { arcade: { ...d.arcade, ...r.arcade }, time: { ...d.time, ...r.time }, survival: { ...d.survival, ...r.survival } }; } } catch {}
+savedRecords = JSON.stringify(world.records);                    // best times / streaks live in this browser
 let savedDifficulty = world.difficulty;                         // the last used CPU level is remembered between visits
 try { const v = Number(localStorage.getItem('pixel-brawl-difficulty')); if (Number.isInteger(v) && v >= 0 && v <= 2) world.difficulty = savedDifficulty = v; } catch {}
 let savedTheme = world.theme;
@@ -22,7 +35,7 @@ function updateMusicScene() {
   let scene = world.mode;
   if (scene === 'pause') scene = world.back;
   else if (scene === 'settings') scene = world.settingsBack === 'pause' ? world.back : world.settingsBack;
-  const next = FIGHTING.includes(scene) || scene === 'theme' ? 'fight' : 'menu', key = next + world.theme;
+  const next = FIGHTING.includes(scene) || scene === 'theme' || scene === 'loading' ? 'fight' : 'menu', key = next + world.theme;
   if (key !== lastMusicScene) { lastMusicScene = key; setAudioMode(next, world.theme); }
 }
 const unlock = () => { unlockAudio(); syncAudio(); updateMusicScene(); };
@@ -41,9 +54,10 @@ function selectKey(code) {
 function activateMenu(index) {
   if (index === 0) openDifficulty(world);                       // 1 player: choose the CPU level first
   else if (index === 1) openSelect(world, true);
-  else if (index === 2) openDojo(world);
-  else if (index === 3) openTutorial(world);
-  else if (index === 4) openSettings(world);
+  else if (index === 2) openModes(world);
+  else if (index === 3) openDojo(world);
+  else if (index === 4) openTutorial(world);
+  else if (index === 5) openSettings(world);
 }
 function onKey(code) {
   const m = world.mode;
@@ -52,21 +66,42 @@ function onKey(code) {
     else if (m === 'pause') { if (world.exitConfirm) world.exitConfirm = false; else resume(world); }
     else if (m === 'settings') closeSettings(world);
     else if (m === 'select' && !world.twoP) openDifficulty(world);  // back one step
+    else if (m === 'difficulty' && world.pendingRun) openModes(world);
+    else if (m === 'extremePick') openModes(world);
+    else if (m === 'runEnd' && world.run.state === 'continue') { /* answer with the buttons */ }
     else if (m === 'theme') openSelect(world, world.twoP);
+    else if (m === 'loading') cancelLoading(world);
     else toMenu(world);
     return;
   }
   if (m === 'menu') {
     if (code === 'Digit1' || code === 'Numpad1') openDifficulty(world);
     else if (code === 'Digit2' || code === 'Numpad2') openSelect(world, true);
+    else if (code === 'Digit3' || code === 'Numpad3' || code === 'KeyM') openModes(world);
     else if (code === 'KeyO') openDojo(world);
     else if (code === 'KeyT') openTutorial(world);
-    else if (code === 'ArrowUp' || code === 'KeyW') world.menuIndex = (world.menuIndex + 5 - 1) % 5;
-    else if (code === 'ArrowDown' || code === 'KeyS') world.menuIndex = (world.menuIndex + 1) % 5;
+    else if (code === 'ArrowUp' || code === 'KeyW') world.menuIndex = (world.menuIndex + 6 - 1) % 6;
+    else if (code === 'ArrowDown' || code === 'KeyS') world.menuIndex = (world.menuIndex + 1) % 6;
     else if (code === 'ArrowLeft' || code === 'KeyA' || code === 'ArrowRight' || code === 'KeyD') {
       const delta = code === 'ArrowLeft' || code === 'KeyA' ? -1 : 1;
-      world.menuIndex = (world.menuIndex + 5 + delta) % 5;
+      world.menuIndex = (world.menuIndex + 6 + delta) % 6;
     } else if (code === 'Enter' || code === 'Space' || code === 'KeyF') activateMenu(world.menuIndex);
+  } else if (m === 'modes') {
+    if (code === 'ArrowLeft' || code === 'KeyA') modeMove(world, -1);
+    else if (code === 'ArrowRight' || code === 'KeyD') modeMove(world, 1);
+    else if (/^(Digit|Numpad)[1-4]$/.test(code)) modeChoose(world, Number(code.slice(-1)) - 1);
+    else if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') modeChoose(world, world.modeIndex);
+  } else if (m === 'extremePick') {
+    if (code === 'ArrowLeft' || code === 'KeyA') extremeMove(world, -1);
+    else if (code === 'ArrowRight' || code === 'KeyD') extremeMove(world, 1);
+    else if (code === 'ArrowUp' || code === 'KeyW') extremeMove(world, -3);
+    else if (code === 'ArrowDown' || code === 'KeyS') extremeMove(world, 3);
+    else if (/^(Digit|Numpad)[1-6]$/.test(code)) extremePick(world, Number(code.slice(-1)) - 1);
+    else if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') extremeConfirm(world);
+  } else if (m === 'runEnd') {
+    if (code === 'ArrowUp' || code === 'KeyW') runEndMove(world, -1);
+    else if (code === 'ArrowDown' || code === 'KeyS') runEndMove(world, 1);
+    else if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') runEndChoose(world, world.endIndex);
   } else if (m === 'difficulty') {
     if (code === 'ArrowLeft' || code === 'KeyA' || code === 'ArrowUp' || code === 'KeyW') cycleDifficulty(world, -1);
     else if (code === 'ArrowRight' || code === 'KeyD' || code === 'ArrowDown' || code === 'KeyS') cycleDifficulty(world, 1);
@@ -85,9 +120,13 @@ function onKey(code) {
     else if (code === 'ArrowRight' || code === 'KeyD') dojoChangeFighter(world, 1);
     else if (code === 'ArrowUp' || code === 'KeyW') dojoChangeCombo(world, -1);
     else if (code === 'ArrowDown' || code === 'KeyS') dojoChangeCombo(world, 1);
-    else if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') startDojo(world);
+    else if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') launchDojo(world);
   } else if (m === 'dojo') {
-    if (code === 'KeyR') resetDojo(world);
+    if (world.dojo.choice) {
+      if (code === 'ArrowLeft' || code === 'KeyA' || code === 'ArrowRight' || code === 'KeyD') dojoChoiceMove(world, 1);
+      else if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') dojoChoose(world, world.dojo.choice.i);
+    }
+    else if (code === 'KeyR') resetDojo(world);
     else if (code === 'BracketLeft' || code === 'KeyQ') dojoChangeCombo(world, -1);
     else if (code === 'BracketRight' || code === 'KeyE' || code === 'KeyN') dojoChangeCombo(world, 1);
   }
@@ -99,8 +138,8 @@ function onKey(code) {
       const n = pauseItems(world).length;
       if (code === 'ArrowUp' || code === 'KeyW') world.pm = (world.pm + n - 1) % n;
       else if (code === 'ArrowDown' || code === 'KeyS') world.pm = (world.pm + 1) % n;
-      else if (world.pm === 4 && (code === 'ArrowLeft' || code === 'KeyA')) pauseChoose(world, 4, -1);
-      else if (world.pm === 4 && (code === 'ArrowRight' || code === 'KeyD')) pauseChoose(world, 4, 1);
+      else if (pauseItems(world)[world.pm] === 'DIFFICULTY' && (code === 'ArrowLeft' || code === 'KeyA')) pauseChoose(world, world.pm, -1);
+      else if (pauseItems(world)[world.pm] === 'DIFFICULTY' && (code === 'ArrowRight' || code === 'KeyD')) pauseChoose(world, world.pm, 1);
       else if (code === 'Enter' || code === 'Space') pauseChoose(world, world.pm);
     }
   } else if (m === 'settings') {
@@ -118,8 +157,11 @@ function onKey(code) {
   } else if (m === 'tutorial') {
     if (code === 'ArrowLeft' || code === 'ArrowRight' || code === 'Enter' || code === 'Space') tutorialChoose(world, 0);
   } else if (m === 'match') {
-    if (code === 'Enter') startMatch(world, world.twoP);
-    else if (code === 'KeyC') openSelect(world, world.twoP);
+    if (code === 'ArrowUp' || code === 'KeyW') matchMove(world, -1);
+    else if (code === 'ArrowDown' || code === 'KeyS') matchMove(world, 1);
+    else if (code === 'Enter' || code === 'Space') matchChoose(world, world.endIndex);
+    else if (code === 'KeyR') matchChoose(world, 0);                              // rematch
+    else if (code === 'KeyC') matchChoose(world, 1);                              // change fighters
     else if (code === 'KeyD' && !world.twoP) cycleDifficulty(world, 1);        // change the CPU level before the rematch
   }
 }
@@ -128,25 +170,36 @@ function onPoint(x, y) {
   if (m === 'menu') {
     if (inBox(x, y, MENU_BUTTONS.one)) { world.menuIndex = 0; openDifficulty(world); }
     else if (inBox(x, y, MENU_BUTTONS.two)) { world.menuIndex = 1; openSelect(world, true); }
-    else if (inBox(x, y, MENU_BUTTONS.dojo)) { world.menuIndex = 2; openDojo(world); }
-    else if (inBox(x, y, MENU_BUTTONS.tutorial)) { world.menuIndex = 3; openTutorial(world); }
-    else if (inBox(x, y, MENU_BUTTONS.settings)) { world.menuIndex = 4; openSettings(world); }
+    else if (inBox(x, y, MENU_BUTTONS.modes)) { world.menuIndex = 2; openModes(world); }
+    else if (inBox(x, y, MENU_BUTTONS.dojo)) { world.menuIndex = 3; openDojo(world); }
+    else if (inBox(x, y, MENU_BUTTONS.tutorial)) { world.menuIndex = 4; openTutorial(world); }
+    else if (inBox(x, y, MENU_BUTTONS.settings)) { world.menuIndex = 5; openSettings(world); }
+  } else if (m === 'modes') {
+    if (x < 110 && y < 50) toMenu(world);
+    else for (let i = 0; i < MODE_CARDS.length; i++) if (inBox(x, y, modeCardRect(i))) { modeChoose(world, i); return; }
+  } else if (m === 'extremePick') {
+    if (x < 110 && y < 50) openModes(world);
+    else if (inBox(x, y, MOD_START)) extremeConfirm(world);
+    else for (let i = 0; i < 6; i++) if (inBox(x, y, modRect(i))) { extremePick(world, i); return; }
+  } else if (m === 'runEnd') {
+    runEndClick(world, x, y);
   } else if (m === 'select') {
     if (x < 110 && y < 50) { if (world.twoP) toMenu(world); else openDifficulty(world); } else selectClick(world, x, y);
   } else if (m === 'theme') {
     if (x < 110 && y < 50) openSelect(world, world.twoP); else themeClick(world, x, y);
   } else if (m === 'difficulty') {
-    if (x < 110 && y < 50) toMenu(world);
+    if (x < 110 && y < 50) { if (world.pendingRun) openModes(world); else toMenu(world); }
     else for (let i = 0; i < 3; i++) if (inBox(x, y, diffCardRect(i))) { world.difficulty = i; difficultyConfirm(world); return; }
   } else if (m === 'pause') pauseClick(world, x, y);
   else if (m === 'dojoSelect') {
     if (x < 110 && y < 50) toMenu(world);
     else if (inBox(x, y, DOJO_FIGHTER_PREV)) dojoChangeFighter(world, -1);
     else if (inBox(x, y, DOJO_FIGHTER_NEXT)) dojoChangeFighter(world, 1);
-    else if (inBox(x, y, DOJO_START)) startDojo(world);
+    else if (inBox(x, y, DOJO_START)) launchDojo(world);
     else for (let i = 0; i < 8; i++) if (inBox(x, y, dojoComboRect(i))) { world.dojo.combo = i; sfx('select'); return; }
   } else if (m === 'dojo') {
-    if (x < 110 && y < 50) pause(world);
+    if (world.dojo.choice) dojoChoiceClick(world, x, y);
+    else if (x < 110 && y < 50) pause(world);
     else if (y < 210 && x < 320) dojoChangeCombo(world, -1);
     else if (y < 210 && x > 640) dojoChangeCombo(world, 1);
     else if (y > 470 && x < W / 2) resetDojo(world);
@@ -169,7 +222,7 @@ function onPoint(x, y) {
   } else if (m === 'tutorial') {
     if (y >= 438 && x >= 490) tutorialChoose(world, 1);
     else if (x < 480 && y >= 438) tutorialChoose(world, 0);
-  } else if (m === 'match') { if (!world.twoP && inBox(x, y, MATCH_DIFF)) cycleDifficulty(world, 1); else startMatch(world, world.twoP); }
+  } else if (m === 'match') matchClick(world, x, y);
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(world); });
 initInput({ canvas, onKey, onPoint, unlock });
@@ -196,6 +249,7 @@ function frame(t) {
     }
     if (world.difficulty !== savedDifficulty) { savedDifficulty = world.difficulty; try { localStorage.setItem('pixel-brawl-difficulty', String(savedDifficulty)); } catch {} }
     if (world.theme !== savedTheme) { savedTheme = world.theme; try { localStorage.setItem('pixel-brawl-theme', String(savedTheme)); } catch {} }
+    { const now = JSON.stringify(world.records); if (now !== savedRecords) { savedRecords = now; try { localStorage.setItem('pixel-brawl-records', now); } catch {} } }
     updateMusicScene();
     render(g, world);
   } catch (err) {

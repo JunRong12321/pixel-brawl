@@ -128,3 +128,15 @@ export function announceWinner(name) {
   call.lang = 'en-US'; call.rate = .88; call.pitch = .82; call.volume = prefs.voice / 100;
   window.speechSynthesis.speak(call);
 }
+
+// Called by the loading screen: resolves once the stage's battle track can play (or after a short timeout, so loading never hangs).
+export function preloadTheme(index) {
+  const track = themeTracks[index] || themeTracks[0];
+  return new Promise(resolve => {
+    if (track.readyState >= 3) return resolve();
+    const done = () => { track.removeEventListener('canplaythrough', done); track.removeEventListener('error', done); resolve(); };
+    track.addEventListener('canplaythrough', done); track.addEventListener('error', done);
+    try { track.preload = 'auto'; track.load(); } catch { resolve(); }
+    setTimeout(resolve, 4000);
+  });
+}

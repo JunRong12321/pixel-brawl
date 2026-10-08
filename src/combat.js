@@ -11,6 +11,8 @@ const gain = (f, v) => { f.meter = Math.min(METER_MAX, (f.meter || 0) + v); };
 //  - combo: hits while the victim is still in hit-stun; each extra hit does 10% less damage (minimum 40%)
 //  - knockdown: victim is launched, lies down and is invulnerable while getting up
 export function applyHit(w, from, to, h) {
+  if (w.xb?.dmg) h = { ...h, dmg: h.dmg * w.xb.dmg };                 // Extreme Battle: GLASS CANNON
+  const G = (f, v) => gain(f, v * (w.xb?.meter ?? 1));                // Extreme Battle: SUPER FEVER
   const at = from.owner || from;
   const guardOk = h.g === 'high' ? !to.crouch : h.g === 'low' ? !!to.crouch : true;
   const blocked = to.block && !to.atk && to.stun <= 0 && to.y >= GY && guardOk;
@@ -18,7 +20,7 @@ export function applyHit(w, from, to, h) {
   if (blocked) {
     to.hp = Math.max(1, to.hp - Math.max(1, Math.ceil(h.dmg * (h.chip || .12))));
     to.stun = 10; to.vx = from.face * h.kb * .8; to.flash = 0; fx.k = 'block';
-    gain(at, 4); w.sfx('block');
+    G(at, 4); w.sfx('block');
   } else {
     const cont = to.stun > 0 && to.cmb > 0, n = cont ? to.cmb : 0, counter = !!to.atk;
     const seq = (cont ? [...(to.seq || []), h.key] : [h.key]).slice(-6);          // moves that hit during this combo
@@ -31,7 +33,7 @@ export function applyHit(w, from, to, h) {
     to.hp = trainingDummy ? Math.max(1, to.hp - dmg) : Math.max(0, to.hp - dmg);
     to.cmb = n + 1; to.cmbDmg = (cont ? to.cmbDmg : 0) + dmg; to.cmbT = 70;
     to.stun = h.st + (counter ? 4 : 0); to.vx = from.face * h.kb; to.atk = null; to.hit = 0; to.flash = 6;
-    gain(at, dmg * 1.5 + (combo ? 10 : 0)); gain(to, dmg * .8);
+    G(at, dmg * 1.5 + (combo ? 10 : 0)); G(to, dmg * .8);
     w.hitstop = counter ? 8 : 5; if (!w.reducedMotion) w.shake = 7; fx.k = counter ? 'counter' : 'hit';
     if (counter) w.banner = { text: 'COUNTER!', t: 45 };
     if (h.kd || (combo && combo.kd)) { to.kd = to.stun = 44; to.vy = -9; to.vx = from.face * (h.kb + 2); w.hitstop = 8; w.banner = { text: 'KNOCKDOWN!', t: 45 }; }

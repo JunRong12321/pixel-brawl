@@ -1,5 +1,7 @@
 // Canvas renderer. It only reads game state and draws pixels.
-import { pauseItems, DOJO_NEXT_DELAY } from './game.js';
+import { pauseItems, DOJO_NEXT_DELAY, dojoChoiceLabels, loadingFighters, runEndItems } from './game.js';
+import { MODE_CARDS, modeCardRect, EXTREME_MODS, CHAOS, modRect, MOD_START, runEndRect, formatTime, RUN_CONTINUES } from './config.js';
+import { THEME_START, MATCH_ITEMS, matchButtonRect, MATCH_DIFF, LOAD_TIPS, dojoChoiceRect } from './config.js';
 import { W, H, GY, ROUND_TIME, CHARS, PORT, randomBoxRect, movesOf, selButtons, PAUSE_ITEMS, pauseRect, COMBOS, THEMES, themeCardRect, MOVE_NAMES, MENU_BUTTONS, DOJO_START, DOJO_FIGHTER_PREV, DOJO_FIGHTER_NEXT, dojoComboRect, DIFFICULTIES, DIFFICULTY_INFO, diffCardRect, SETTINGS_ITEMS, settingsRect, settingSliderRect, exitChoiceRect, INTRO_READY_AT, INTRO_FIGHT_AT } from './config.js';
 
 const FONT = '"Press Start 2P", monospace';
@@ -182,7 +184,16 @@ function drawThemeSelect(g, w) {
   drawFighter(g, { ...a, x: 120, y: 520, groundY: 520, face: 1, walk: 0, hp: 1 }, .62, true, w.reducedMotion, true, renderFrame);
   drawFighter(g, { ...b, alt: w.picks[0] === w.picks[1], x: 840, y: 520, groundY: 520, face: -1, walk: 0, hp: 1 }, .62, true, w.reducedMotion, true, renderFrame + 60);
   text(g, 'LEFT / RIGHT CHOOSE  ·  1-5 QUICK PICK  ·  R RANDOM', W / 2, 410, 7, '#fff');
-  text(g, 'ENTER, PUNCH OR CLICK AGAIN TO FIGHT', W / 2, 436, 8, '#ffd23f');
+  text(g, 'CLICK A STAGE TO SELECT IT, THEN CONFIRM', W / 2, 434, 7, '#c9b8e0');
+  button(g, THEME_START, 'START FIGHT  ·  ENTER', '#3ddc84', false, false);
+}
+// Used by the loading screen: resolves when the sprite sheets for these fighters have finished loading (or failed).
+export function preloadFighters(names, onProgress = () => {}) {
+  const images = names.flatMap(n => [fighterArt(n), fighterActionArt(n)]).filter(Boolean);
+  let done = 0; const tick = () => onProgress(++done / Math.max(1, images.length));
+  return Promise.all(images.map(img => img.complete ? (tick(), null) : new Promise(res => {
+    const f = () => { tick(); res(); }; img.addEventListener('load', f, { once: true }); img.addEventListener('error', f, { once: true });
+  })));
 }
 const OUTLINE = '#21162d';
 const fighterArtCache = new Map();
@@ -573,6 +584,105 @@ function drawFighter(g, f, scale = 1, withShadow = true, reducedMotion = false, 
   g.restore();
   if (withShadow) { g.fillStyle = `rgba(0,0,0,${airborne ? .2 : .34})`; g.beginPath(); g.ellipse(f.x, floor + 4, airborne ? 22 : 34, 7, 0, 0, Math.PI * 2); g.fill(); }
 }
+// Blocking is visible: the fighter drops into the guard pose and a pale shield shimmers in front (brighter while taking a blocked hit).
+function drawGuard(g, f, frame, reducedMotion) {
+  if (!f.block || f.hp <= 0 || f.kd > 0) return;
+  const pulse = reducedMotion ? 0 : Math.sin(frame * .22) * .04, hit = f.stun > 0 ? .16 : 0, low = f.crouch ? 24 : 0;
+  g.save(); g.translate(f.x + (f.face || 1) * 30, f.y - 70 + low * .6);
+  g.fillStyle = `rgba(93,210,255,${.1 + pulse + hit})`; g.strokeStyle = `rgba(160,230,255,${.5 + hit})`; g.lineWidth = 2;
+  g.beginPath(); g.ellipse(0, 0, 21, 64 - low, 0, 0, Math.PI * 2); g.fill(); g.stroke(); g.restore();
+}
+function drawLoading(g, w) {
+  const L = w.load; if (!L) return;
+  g.fillStyle = 'rgba(10,4,20,.84)'; g.fillRect(0, 0, W, H);
+  const [a, b] = loadingFighters(w).map(i => CHARS[i]), stage = THEMES[w.theme];
+  text(g, 'LOADING' + '.'.repeat(1 + (Math.floor(L.t / 14) % 3)), W / 2 - 130, 140, 26, '#ffd23f', 'left');
+  text(g, L.kind === 'dojo' ? `${a.name}  ·  COMBO DOJO` : `${a.name}  VS  ${b.name}`, W / 2, 190, 12, '#fff');
+  text(g, L.kind === 'dojo' ? 'TRAINING STAGE' : stage.name, W / 2, 214, 8, L.kind === 'dojo' ? '#c9b8e0' : stage.col);
+  const bar = { x: W / 2 - 200, y: 250, w: 400, h: 20 };
+  g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bar.x, bar.y, bar.w, bar.h);
+  g.fillStyle = '#3ddc84'; g.fillRect(bar.x, bar.y, bar.w * L.bar, bar.h);
+  g.strokeStyle = '#ffd23f'; g.lineWidth = 2; g.strokeRect(bar.x, bar.y, bar.w, bar.h);
+  text(g, Math.round(L.bar * 100) + '%', W / 2, 292, 8, '#fff');
+  if (w.run) { const r = w.run; text(g, ({ arcade: 'ARCADE LADDER', survival: 'SURVIVAL', time: 'TIME ATTACK' })[r.kind] + (r.kind === 'survival' ? ` · WIN ${r.i + 1}` : ` · FIGHT ${r.i + 1} OF ${r.total}`), W / 2, 112, 9, '#ffd58a'); }
+  text(g, 'TIP', W / 2, 346, 7, '#ffd58a'); text(g, LOAD_TIPS[L.tip], W / 2, 368, 6, '#fff');   // tips are stage/fight related
+  text(g, 'ESC: BACK', W / 2, 512, 6, '#c9b8e0');
+  drawFighter(g, { ...a, x: 120, y: 520, groundY: 520, face: 1, walk: 0, hp: 1 }, .62, true, w.reducedMotion, true, renderFrame);
+  if (L.kind !== 'dojo') drawFighter(g, { ...b, alt: w.picks[0] === w.picks[1], x: 840, y: 520, groundY: 520, face: -1, walk: 0, hp: 1 }, .62, true, w.reducedMotion, true, renderFrame + 60);
+}
+function drawMatchOver(g, w) {
+  g.fillStyle = 'rgba(10,4,20,.74)'; g.fillRect(0, 0, W, H);
+  const champ = w.fighters.find(f => f.wins >= 2);
+  text(g, (champ ? champ.name : '?') + ' WINS THE MATCH', W / 2, 196, 24, '#ffd23f');
+  text(g, 'WHAT NEXT?', W / 2, 246, 9, '#c9b8e0');
+  MATCH_ITEMS.forEach((label, i) => {
+    const b = matchButtonRect(i), on = w.endIndex === i;
+    g.fillStyle = on ? (i === 2 ? '#a02b3a' : '#2e9e5b') : 'rgba(255,255,255,.1)'; g.fillRect(b.x, b.y, b.w, b.h);
+    g.strokeStyle = '#ffd23f'; g.lineWidth = on ? 4 : 1.5; g.strokeRect(b.x, b.y, b.w, b.h);
+    text(g, label, W / 2, b.y + 28, 11, '#fff');
+  });
+  text(g, 'W / S + ENTER  ·  R REMATCH  ·  C CHANGE FIGHTERS  ·  ESC EXIT', W / 2, 446, 6, '#c9b8e0');
+  if (!w.twoP) text(g, 'CPU LEVEL: ' + DIFFICULTIES[w.difficulty] + '   ·   D / CLICK TO CHANGE', W / 2, MATCH_DIFF.y + 19, 7, DIFFICULTY_INFO[w.difficulty].col);
+}
+function backLabel(g) { text(g, '< BACK', 40, 38, 8, '#c9b8e0', 'left'); }
+function recordLine(w, id) {
+  const R = w.records;
+  if (id === 'arcade') return R.arcade.best == null ? 'NOT CLEARED YET' : `BEST ${formatTime(R.arcade.best)}  ·  CLEARS ${R.arcade.clears}`;
+  if (id === 'time') return R.time.best == null ? 'NO TIME SET' : `BEST TIME ${formatTime(R.time.best)}`;
+  if (id === 'survival') return R.survival.best ? `BEST STREAK ${R.survival.best} WINS` : 'NO STREAK YET';
+  return '6 RULE SETS';
+}
+function drawModes(g, w) {
+  g.fillStyle = 'rgba(10,4,20,.76)'; g.fillRect(0, 0, W, H); backLabel(g);
+  text(g, 'ARCADE MODES', W / 2, 66, 24, '#ffd23f');
+  text(g, 'PICK A MODE · YOUR BEST RESULTS ARE SAVED IN THIS BROWSER', W / 2, 94, 6.5, '#c9b8e0');
+  MODE_CARDS.forEach((m, i) => {
+    const b = modeCardRect(i), on = w.modeIndex === i, cx = b.x + b.w / 2;
+    g.fillStyle = on ? 'rgba(255,255,255,.17)' : 'rgba(255,255,255,.06)'; g.fillRect(b.x, b.y, b.w, b.h);
+    g.strokeStyle = on ? m.col : 'rgba(255,255,255,.25)'; g.lineWidth = on ? 4 : 1; g.strokeRect(b.x, b.y, b.w, b.h);
+    text(g, m.name, cx, b.y + 44, m.name.length > 12 ? 11 : 13, m.col); text(g, m.tag, cx, b.y + 72, 5.5, '#ffd58a');
+    m.lines.forEach((l, k) => text(g, l, cx, b.y + 112 + k * 26, 5.6, '#fff'));
+    g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(b.x + 12, b.y + b.h - 54, b.w - 24, 34);
+    text(g, recordLine(w, m.id), cx, b.y + b.h - 33, 5.5, m.col);
+  });
+  text(g, 'LEFT / RIGHT CHOOSE  ·  1-4 QUICK PICK  ·  ENTER OR CLICK TO START  ·  ESC BACK', W / 2, 412, 6.5, '#fff');
+}
+function drawExtremePick(g, w) {
+  g.fillStyle = 'rgba(10,4,20,.76)'; g.fillRect(0, 0, W, H); backLabel(g);
+  text(g, 'EXTREME BATTLE', W / 2, 62, 24, '#ffd23f');
+  text(g, 'CHOOSE A RULE CHANGE FOR THE WHOLE MATCH', W / 2, 92, 6.5, '#c9b8e0');
+  for (let i = 0; i <= EXTREME_MODS.length; i++) {
+    const m = EXTREME_MODS[i] || { name: 'CHAOS', tag: 'A NEW RANDOM RULE EVERY ROUND', col: '#ff6bd6' }, b = modRect(i), on = w.xi === i, cx = b.x + b.w / 2;
+    g.fillStyle = on ? 'rgba(255,255,255,.17)' : 'rgba(255,255,255,.06)'; g.fillRect(b.x, b.y, b.w, b.h);
+    g.strokeStyle = on ? m.col : 'rgba(255,255,255,.25)'; g.lineWidth = on ? 4 : 1; g.strokeRect(b.x, b.y, b.w, b.h);
+    text(g, `${i + 1}`, b.x + 14, b.y + 20, 7, '#c9b8e0', 'left'); text(g, m.name, cx, b.y + 52, 13, m.col); text(g, m.tag, cx, b.y + 84, 5.6, '#fff');
+  }
+  button(g, MOD_START, 'CONFIRM RULE  ·  ENTER', '#3ddc84', false, false);
+  text(g, 'ARROWS CHOOSE  ·  1-6 QUICK PICK  ·  YOU FIGHT THE CPU AT YOUR CURRENT LEVEL', W / 2, 470, 6, '#c9b8e0');
+}
+function drawRunEnd(g, w) {
+  const r = w.run, cont = r.state === 'continue';
+  g.fillStyle = 'rgba(10,4,20,.8)'; g.fillRect(0, 0, W, H);
+  const clear = r.result === 'clear', name = { arcade: 'ARCADE LADDER', survival: 'SURVIVAL', time: 'TIME ATTACK' }[r.kind];
+  text(g, cont ? 'DEFEATED!' : clear ? `${name} CLEARED!` : r.kind === 'survival' ? 'SURVIVAL OVER' : 'GAME OVER', W / 2, 120, 24, clear ? '#3ddc84' : '#ff5a3c');
+  text(g, name, W / 2, 152, 8, '#c9b8e0');
+  const stats = [];
+  if (r.kind === 'survival') stats.push(`WINS IN A ROW: ${r.i}`, `BEST STREAK: ${w.records.survival.best}`);
+  else {
+    stats.push(`FIGHTS WON: ${r.i} / ${r.total}`, `TIME: ${formatTime(r.frames)}`);
+    const best = r.kind === 'arcade' ? w.records.arcade.best : w.records.time.best;
+    stats.push(best == null ? 'BEST TIME: --' : `BEST TIME: ${formatTime(best)}`);
+  }
+  if (cont) stats.push(`CONTINUES LEFT: ${r.credits} / ${RUN_CONTINUES}`);
+  stats.forEach((l, i) => text(g, l, W / 2, 196 + i * 28, 10, '#fff'));
+  if (r.newBest && !cont) text(g, 'NEW PERSONAL BEST!', W / 2, 196 + stats.length * 28 + 6, 11, '#ffd23f');
+  runEndItems(w).forEach((label, i) => {
+    const b = runEndRect(i), on = w.endIndex === i, red = label === 'EXIT' || label === 'GIVE UP';
+    g.fillStyle = on ? (red ? '#a02b3a' : '#2e9e5b') : 'rgba(255,255,255,.1)'; g.fillRect(b.x, b.y, b.w, b.h);
+    g.strokeStyle = '#ffd23f'; g.lineWidth = on ? 4 : 1.5; g.strokeRect(b.x, b.y, b.w, b.h); text(g, label, W / 2, b.y + 28, 10, '#fff');
+  });
+  text(g, 'W / S + ENTER  ·  OR CLICK', W / 2, 330 + runEndItems(w).length * 52 + 8, 6, '#c9b8e0');
+}
 function drawFireball(g, b, reducedMotion = false) {
   if (reducedMotion) {
     g.fillStyle = '#ff7b36'; g.beginPath(); g.arc(b.x, b.y, 15 * (b.size || 1), 0, Math.PI * 2); g.fill();
@@ -608,9 +718,14 @@ function drawHud(g, w) {
     g.fillStyle = f.meter >= 100 ? '#ffd23f' : '#4cc9f0'; g.fillRect(n ? x : x + bw - 190, 57, 190 * f.meter / 100, 9);
     if (f.meter >= 100) text(g, 'SUPER!', n ? x + 196 : x + bw - 196, 68, 7, '#ffd23f', n ? 'left' : 'right');
     text(g, f.name, n ? x + bw : x, 83, 13, '#fff', n ? 'right' : 'left');
-    for (let i = 0; i < 2; i++) { g.fillStyle = i < f.wins ? '#ffd23f' : '#000'; g.beginPath(); g.arc(n ? x + 10 + i * 20 : x + bw - 10 - i * 20, 97, 6, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.stroke(); }
+    for (let i = 0; i < (w.roundsToWin || 2); i++) { g.fillStyle = i < f.wins ? '#ffd23f' : '#000'; g.beginPath(); g.arc(n ? x + 10 + i * 20 : x + bw - 10 - i * 20, 97, 6, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.stroke(); }
   });
-  if (!w.twoP && w.mode !== 'dojo') { const d = DIFFICULTY_INFO[w.difficulty]; text(g, 'CPU  ' + d.name, W / 2, 80, 7, d.col); }
+  if (w.run) {
+    const r = w.run, kind = { arcade: 'ARCADE', survival: 'SURVIVAL', time: 'TIME ATTACK' }[r.kind], lv = DIFFICULTY_INFO[w.cpuLevel ?? w.difficulty];
+    text(g, r.kind === 'survival' ? `SURVIVAL · WINS ${r.i}` : `${kind} · FIGHT ${r.i + 1}/${r.total}`, W / 2, 80, 7, '#ffd58a');
+    text(g, (r.kind === 'survival' ? '' : formatTime(r.frames) + '  ·  ') + 'CPU ' + lv.name, W / 2, 98, 6, lv.col);
+  } else if (!w.twoP && (w.mode === 'pause' ? w.back : w.mode) !== 'dojo') { const d = DIFFICULTY_INFO[w.difficulty]; text(g, 'CPU  ' + d.name, W / 2, 80, 7, d.col); }
+  if (w.xb) text(g, 'RULE: ' + w.xb.name, W / 2, 100, 7, w.xb.col);
   if (w.mode === 'dojo') text(g, 'DOJO', W / 2, 58, 12, '#ffd58a');
   else text(g, String(Math.max(0, Math.min(ROUND_TIME, w.time))).padStart(2, '0'), W / 2, 58, 24, '#ffd58a');
 }
@@ -625,21 +740,22 @@ function button(g, b, label, col, on, dim) {
 }
 function drawMenu(g, w) {
   g.fillStyle = 'rgba(10,4,20,.34)'; g.fillRect(0, 0, W, H);
-  g.fillStyle = 'rgba(14,7,25,.78)'; g.beginPath(); g.roundRect(174, 18, 612, 350, 18); g.fill();
+  g.fillStyle = 'rgba(14,7,25,.78)'; g.beginPath(); g.roundRect(174, 18, 612, 340, 18); g.fill();
   g.strokeStyle = 'rgba(255,213,138,.26)'; g.lineWidth = 1; g.stroke();
   text(g, 'PIXEL BRAWL', W / 2, 78, 34, '#ffd23f');
-  text(g, 'ARCADE FIGHTS · TRAINING · LOCAL PLAY', W / 2, 102, 7, '#c9b8e0');
+  text(g, 'LADDER · SURVIVAL · TIME ATTACK · EXTREME', W / 2, 100, 7, '#c9b8e0');
   button(g, MENU_BUTTONS.one, '1 PLAYER VS CPU  ·  1', '#ff5a3c', w.menuIndex === 0, false);
   button(g, MENU_BUTTONS.two, '2 PLAYERS  ·  2', '#4dabf7', w.menuIndex === 1, false);
-  button(g, MENU_BUTTONS.dojo, 'COMBO DOJO', '#4dd0e1', w.menuIndex === 2, false);
-  button(g, MENU_BUTTONS.tutorial, 'TUTORIAL', '#4dd0e1', w.menuIndex === 3, false); button(g, MENU_BUTTONS.settings, 'SETTINGS', '#b89aff', w.menuIndex === 4, false);
+  button(g, MENU_BUTTONS.modes, 'ARCADE MODES  ·  3', '#ffd23f', w.menuIndex === 2, false);
+  button(g, MENU_BUTTONS.dojo, 'COMBO DOJO', '#4dd0e1', w.menuIndex === 3, false);
+  button(g, MENU_BUTTONS.tutorial, 'TUTORIAL', '#4dd0e1', w.menuIndex === 4, false); button(g, MENU_BUTTONS.settings, 'SETTINGS', '#b89aff', w.menuIndex === 5, false);
   g.fillStyle = 'rgba(10,4,20,.82)'; g.beginPath(); g.roundRect(58, 382, 844, 138, 12); g.fill();
   g.strokeStyle = 'rgba(110,78,136,.75)'; g.lineWidth = 1; g.stroke();
   text(g, 'CONTROLS', 80, 403, 7, '#ffd58a', 'left');
   text(g, 'P1  WASD MOVE  ·  F PUNCH  ·  G KICK  ·  H SPECIAL  ·  J SUPER  ·  V BLOCK', 80, 424, 6, '#fff', 'left');
   text(g, "P2  ARROWS MOVE  ·  K PUNCH  ·  L KICK  ·  ; SPECIAL  ·  ' SUPER  ·  / BLOCK", 80, 442, 6, '#fff', 'left');
   text(g, 'CONTROLLER: D-PAD / STICK TO MOVE  ·  A CONFIRMS  ·  FACE BUTTONS ATTACK  ·  LT / RT BLOCK', 80, 460, 6, '#c9b8e0', 'left');
-  text(g, 'CPU LEVEL IS CHOSEN WHEN YOU START 1P  ·  O: COMBO DOJO  ·  T: TUTORIAL  ·  DOWN + KICK SWEEP', 80, 480, 6, '#c9b8e0', 'left');
+  text(g, 'CPU LEVEL IS CHOSEN WHEN YOU START 1P  ·  M: ARCADE MODES  ·  O: DOJO  ·  T: TUTORIAL  ·  DOWN + KICK SWEEP', 80, 480, 6, '#c9b8e0', 'left');
 }
 const MOVE_SHORT = { p: 'PUNCH', k: 'KICK', cp: 'DOWN PUNCH', c: 'DOWN KICK', jp: 'AIR PUNCH', j: 'FLY KICK', s: 'SPECIAL' };
 function drawDojoSelect(g, w) {
@@ -665,27 +781,33 @@ function drawDojoSelect(g, w) {
   text(g, 'W / S OR D-PAD CHANGES COMBO  ·  A / ENTER STARTS  ·  ESC BACK', W / 2, 510, 6, '#c9b8e0');
 }
 function drawDojoOverlay(g, w) {
-  const combo = COMBOS[w.dojo.combo], panel = { x: 300, y: 108, w: 360, h: 96 };
-  g.fillStyle = 'rgba(10,4,20,.82)'; g.fillRect(panel.x, panel.y, panel.w, panel.h); g.strokeStyle = '#4dd0e1'; g.lineWidth = 2; g.strokeRect(panel.x, panel.y, panel.w, panel.h);
+  const combo = COMBOS[w.dojo.combo], n = combo.seq.length, gap = 8, bw = 92, totalW = n * bw + (n - 1) * gap;
+  const pw = Math.max(380, totalW + 56), panel = { x: W / 2 - pw / 2, y: 108, w: pw, h: 100 };     // the panel grows with the combo, so nothing sticks out
+  g.fillStyle = 'rgba(10,4,20,.84)'; g.fillRect(panel.x, panel.y, panel.w, panel.h); g.strokeStyle = '#4dd0e1'; g.lineWidth = 2; g.strokeRect(panel.x, panel.y, panel.w, panel.h);
   text(g, `CHALLENGE ${w.dojo.combo + 1}/${COMBOS.length}  ·  ${combo.name}`, W / 2, 130, 8, '#ffd23f');
-  const totalW = combo.seq.length * 88 + (combo.seq.length - 1) * 7, left = W / 2 - totalW / 2;
+  const left = W / 2 - totalW / 2;
   combo.seq.forEach((key, i) => {
-    const x = left + i * 95, y = 145, hit = i < w.dojo.progress;
-    g.fillStyle = hit ? 'rgba(61,220,132,.7)' : 'rgba(255,255,255,.09)'; g.fillRect(x, y, 88, 26);
-    g.strokeStyle = hit ? '#3ddc84' : 'rgba(255,255,255,.25)'; g.strokeRect(x, y, 88, 26);
-    text(g, MOVE_SHORT[key], x + 44, y + 17, 5.5, hit ? '#fff' : '#c9b8e0');
+    const x = left + i * (bw + gap), y = 144, hit = i < w.dojo.progress;
+    g.fillStyle = hit ? 'rgba(61,220,132,.7)' : 'rgba(255,255,255,.09)'; g.fillRect(x, y, bw, 26);
+    g.strokeStyle = hit ? '#3ddc84' : 'rgba(255,255,255,.25)'; g.lineWidth = 1; g.strokeRect(x, y, bw, 26);
+    text(g, MOVE_SHORT[key], x + bw / 2, y + 17, 5.5, hit ? '#fff' : '#c9b8e0');
   });
   const cleared = (w.dojo.cleared || []).filter(Boolean).length;
-  text(g, `CLEARED ${cleared}/${COMBOS.length}`, panel.x + panel.w - 8, panel.y + panel.h + 16, 6, cleared === COMBOS.length ? '#3ddc84' : '#c9b8e0', 'right');
-  if (w.dojo.completed) {
-    const next = COMBOS[(w.dojo.combo + 1) % COMBOS.length];
-    text(g, cleared === COMBOS.length ? 'ALL CHALLENGES CLEARED!' : 'COMBO CLEARED!', W / 2, 190, 9, '#3ddc84');
-    text(g, 'NEXT: ' + next.name, W / 2, 228, 8, '#ffd23f');
-    const left = Math.max(0, w.dojo.successT) / DOJO_NEXT_DELAY;
-    g.fillStyle = 'rgba(255,255,255,.15)'; g.fillRect(W / 2 - 80, 236, 160, 6); g.fillStyle = '#ffd23f'; g.fillRect(W / 2 - 80, 236, 160 * (1 - left), 6);
+  text(g, `CLEARED ${cleared}/${COMBOS.length}`, panel.x + panel.w - 12, panel.y + panel.h - 8, 6, cleared === COMBOS.length ? '#3ddc84' : '#c9b8e0', 'right');
+  if (w.dojo.completed) text(g, 'COMBO CLEARED!', W / 2, 192, 9, '#3ddc84');
+  else text(g, `${w.dojo.progress} / ${n} HITS  ·  APPROACH THE DUMMY AND LINK THE MOVES`, W / 2, 192, 5.5, '#ddd');
+  if (w.dojo.choice) {
+    const last = w.dojo.combo === COMBOS.length - 1, box = { x: W / 2 - 250, y: 224, w: 500, h: 108 };
+    g.fillStyle = 'rgba(10,4,20,.92)'; g.fillRect(box.x, box.y, box.w, box.h); g.strokeStyle = '#ffd23f'; g.lineWidth = 2; g.strokeRect(box.x, box.y, box.w, box.h);
+    text(g, last ? 'ALL 8 CHALLENGES CLEARED!' : `CHALLENGE ${w.dojo.combo + 1} CLEARED!`, W / 2, 246, 9, '#3ddc84');
+    dojoChoiceLabels(w).forEach((label, i) => {
+      const b = dojoChoiceRect(i), on = w.dojo.choice.i === i;
+      g.fillStyle = on ? (i ? '#a02b3a' : '#2e9e5b') : 'rgba(255,255,255,.1)'; g.fillRect(b.x, b.y, b.w, b.h);
+      g.strokeStyle = '#ffd23f'; g.lineWidth = on ? 3 : 1.5; g.strokeRect(b.x, b.y, b.w, b.h); text(g, label, b.x + b.w / 2, b.y + 27, label.length > 12 ? 6.5 : 8, '#fff');
+    });
+    text(g, 'LEFT / RIGHT + ENTER  ·  OR CLICK', W / 2, 322, 6, '#c9b8e0');
   }
-  else text(g, `${w.dojo.progress} / ${combo.seq.length} HITS  ·  APPROACH THE DUMMY AND LINK THE MOVES`, W / 2, 194, 5.5, '#ddd');
-  text(g, 'LB / RB OR Q / E: CHANGE CHALLENGE   ·   R: RESET   ·   ESC: PAUSE', W / 2, 518, 6, '#ffd58a');
+  text(g, w.dojo.choice ? 'ESC: PAUSE' : 'LB / RB OR Q / E: CHANGE CHALLENGE   ·   R: RESET   ·   ESC: PAUSE', W / 2, 518, 6, '#ffd58a');
 }
 const SLOT_COL = ['#e63946', '#4dabf7'];
 function drawIcon(g, ch, x, y, reducedMotion) {
@@ -747,8 +869,8 @@ function drawSelect(g, w) {
       const c = mirror ? { ...ch.c, gi: ch.c.band, band: ch.c.gi } : ch.c;
     drawFighter(g, { ...ch, c, alt: mirror, showcase: true, showcaseOffset: n * 150, x, y: 306, groundY: 306, face: n ? -1 : 1, walk: 0, hp: 1, crouch: 0 }, .85, true, w.reducedMotion, true, renderFrame);
     }
-    button(g, b.lock, cpu ? (ready ? 'CPU READY' : 'CPU AUTO PICK') : s.roll[n] ? 'ROLLING...' : ready ? 'LOCKED - UNLOCK' : 'LOCK IN', SLOT_COL[n], ready && !cpu, cpu);
-    const hint = cpu ? (ch ? 'AUTO PICK READY' : 'PICKS AFTER P1 LOCKS') : (n ? 'ARROWS MOVE · K LOCK' : 'A/D MOVE · F LOCK');
+    button(g, b.lock, cpu ? (w.pendingRun ? 'OPPONENTS: CHOSEN FOR YOU' : ready ? 'CPU READY' : 'CPU AUTO PICK') : s.roll[n] ? 'ROLLING...' : ready ? 'LOCKED - UNLOCK' : 'LOCK IN', SLOT_COL[n], ready && !cpu, cpu);
+    const hint = cpu ? (w.pendingRun ? 'LADDER OF RIVALS' : ch ? 'AUTO PICK READY' : 'PICKS AFTER P1 LOCKS') : (n ? 'ARROWS MOVE · K LOCK' : 'A/D MOVE · F LOCK');
     const hintX = n ? 720 : 240;
     text(g, hint, hintX, 357, 5.5, '#c9b8e0');
     drawPanel(g, ch, n ? 490 : 20, 364, s.slot === n, SLOT_COL[n], cpu ? 'CPU' : label);
@@ -764,8 +886,8 @@ function drawPause(g, w) {
     [0,1].forEach(i => { const b = exitChoiceRect(i), on = w.exitChoice === i; g.fillStyle = on ? (i ? '#2e9e5b' : '#e63946') : 'rgba(255,255,255,.1)'; g.fillRect(b.x,b.y,b.w,b.h); g.strokeStyle = '#ffd23f'; g.lineWidth = on ? 3 : 1; g.strokeRect(b.x,b.y,b.w,b.h); text(g, i ? 'NO' : 'YES', b.x+b.w/2,b.y+27,10); });
     text(g, 'LEFT / RIGHT + ENTER   ·   ESC TO CANCEL', W / 2, 360, 7, '#c9b8e0'); return;
   }
-  pauseItems(w).forEach((label,i) => { if (i === 4) label = '‹  CPU LEVEL: ' + DIFFICULTIES[w.difficulty] + '  ›'; const b = pauseRect(i), on = w.pm === i; g.fillStyle = on ? '#e63946' : 'rgba(255,255,255,.1)'; g.fillRect(b.x,b.y,b.w,b.h); g.strokeStyle = '#ffd23f'; g.lineWidth = on ? 4 : 2; g.strokeRect(b.x,b.y,b.w,b.h); text(g,label,W/2,b.y+26,i===4?8:10); });
-  text(g, 'W/S OR UP/DOWN + ENTER · LEFT/RIGHT CHANGES LEVEL · ESC RESUMES', W / 2, 408, 6, '#c9b8e0'); text(g, 'COMBO SKILLS (BONUS DAMAGE)', W / 2, 430, 8, '#ffd58a');
+  pauseItems(w).forEach((label,i) => { if (label === 'DIFFICULTY') label = '‹  CPU LEVEL: ' + DIFFICULTIES[w.difficulty] + '  ›'; const b = pauseRect(i), on = w.pm === i; g.fillStyle = on ? '#e63946' : 'rgba(255,255,255,.1)'; g.fillRect(b.x,b.y,b.w,b.h); g.strokeStyle = '#ffd23f'; g.lineWidth = on ? 4 : 2; g.strokeRect(b.x,b.y,b.w,b.h); text(g,label,W/2,b.y+26,label.startsWith('‹')?8:10); });
+  text(g, pauseItems(w).includes('DIFFICULTY') ? 'W/S OR UP/DOWN + ENTER · LEFT/RIGHT CHANGES LEVEL · ESC RESUMES' : 'W/S OR UP/DOWN + ENTER · ESC RESUMES', W / 2, 408, 6, '#c9b8e0'); text(g, 'COMBO SKILLS (BONUS DAMAGE)', W / 2, 430, 8, '#ffd58a');
   COMBOS.forEach((c,i) => text(g,c.name+': '+c.seq.map(k=>MOVE_NAMES[k]).join(', ')+' +'+c.bonus,i<4?38:500,450+(i%4)*15,6,'#ddd','left'));
 }
 function drawSettings(g, w) {
@@ -814,9 +936,10 @@ export function render(g,w) {
   if(!paused)renderFrame++;                                                   // pausing freezes every animation, not just the simulation
   g.save(); if(!paused&&!w.reducedMotion&&w.shake>.5)g.translate((Math.random()-.5)*w.shake,(Math.random()-.5)*w.shake);
   g.drawImage(stageBackground(menuScreen?0:w.theme),0,0); if(!menuScreen)drawAmbient(g,w.theme,renderFrame,w.reducedMotion);
-  if(m==='menu')drawMenu(g,w); else if(m==='select')drawSelect(g,w); else if(m==='difficulty')drawDifficulty(g,w); else if(m==='tutorial')drawTutorial(g,w); else if(m==='dojoSelect')drawDojoSelect(g,w); else if(m==='theme')drawThemeSelect(g,w);
+  if(m==='menu')drawMenu(g,w); else if(m==='select')drawSelect(g,w); else if(m==='difficulty')drawDifficulty(g,w); else if(m==='tutorial')drawTutorial(g,w); else if(m==='dojoSelect')drawDojoSelect(g,w); else if(m==='theme')drawThemeSelect(g,w); else if(m==='loading')drawLoading(g,w);
+  else if(m==='modes')drawModes(g,w); else if(m==='extremePick')drawExtremePick(g,w);
   else {
-    w.fighters.forEach(f=>drawFighter(g,f,1,true,w.reducedMotion,true,renderFrame)); w.fireballs.forEach(b=>drawFireball(g,b,w.reducedMotion)); if(!w.reducedMotion)drawFx(g,w); drawHud(g,w); drawCombo(g,w);
+    w.fighters.forEach(f=>{drawFighter(g,f,1,true,w.reducedMotion,true,renderFrame);drawGuard(g,f,renderFrame,w.reducedMotion);}); w.fireballs.forEach(b=>drawFireball(g,b,w.reducedMotion)); if(!w.reducedMotion)drawFx(g,w); drawHud(g,w); drawCombo(g,w);
     if(m==='dojo')drawDojoOverlay(g,w);
     if(m==='intro') {
       const label = w.t < INTRO_READY_AT ? 'ROUND ' + w.round : w.t < INTRO_FIGHT_AT ? 'READY!' : 'FIGHT!';
@@ -824,7 +947,7 @@ export function render(g,w) {
       text(g,label,W/2,250,w.t<INTRO_FIGHT_AT?40:52,color);
     }
     if(m==='end'){text(g,w.time<=0&&w.fighters.every(f=>f.hp>0)?'TIME UP':'K.O.',W/2,230,56,'#ff5a3c');if(w.t>50)text(g,w.winner<0?'DRAW':w.fighters[w.winner].name+' WINS',W/2,300,24);}
-    if(m==='match'){g.fillStyle='rgba(10,4,20,.65)';g.fillRect(0,0,W,H);const champ=w.fighters.find(f=>f.wins>=2);text(g,(champ?champ.name:'?')+' WINS THE MATCH',W/2,240,24,'#ffd23f');text(g,'ENTER / TAP - rematch    C - change fighters',W/2,300,10);text(g,'ESC - main menu',W/2,330,9,'#c9b8e0'); if(!w.twoP)text(g,'CPU LEVEL: '+DIFFICULTIES[w.difficulty]+'  -  D / TAP TO CHANGE',W/2,360,9,DIFFICULTY_INFO[w.difficulty].col);}
+    if(m==='match')drawMatchOver(g,w); if(m==='runEnd')drawRunEnd(g,w);
   }
   if(paused)drawPause(g,w); if(w.mode==='settings')drawSettings(g,w); g.restore();
 }

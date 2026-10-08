@@ -70,15 +70,15 @@ export function updateFighter(w, f, o, i) {
     const dir = (i.r ? 1 : 0) - (i.l ? 1 : 0), back = dir !== 0 && dir === -f.face, guard = !!i.b;
     f.block = gr && (back || guard) ? 1 : 0;
     if (gr) {
-      f.vx = f.crouch || guard ? 0 : dir * (back ? 3 : 4.5) * f.spd;
-      if ((i.u || f.buf.u) && !f.crouch && !guard) { f.vy = -f.jump; f.vx = dir * 4.5 * f.spd; delete f.buf.u; }
+      f.vx = f.crouch || guard ? 0 : dir * (back ? 3 : 4.5) * f.spd * (w.xb?.speed ?? 1);
+      if ((i.u || f.buf.u) && !f.crouch && !guard) { f.vy = -f.jump; f.vx = dir * 4.5 * f.spd * (w.xb?.speed ?? 1); delete f.buf.u; }
     }
     tryAttack(w, f, gr, false);
   }
 
   f.prev = i; f.walk += Math.abs(f.vx) * 0.09; f.x += f.vx;
   if (f.y < GY || f.vy < 0) {
-    f.vy += 1; f.y += f.vy;
+    f.vy += w.xb?.grav ?? 1; f.y += f.vy;
     if (f.y >= GY) {
       f.y = GY; f.vy = 0;
       if (f.atk === 'j' || f.atk === 'jp') f.t = Math.max(f.t, f.mv[f.atk].s + f.mv[f.atk].a);   // landing: skip to recovery

@@ -76,9 +76,9 @@ export const MOVE_NAMES = { p: 'Punch', k: 'Kick', cp: 'Down+Punch', c: 'Down+Ki
 export const selButtons = n => ({ lock: { x: n ? 620 : 140, y: 310, w: 200, h: 38 } });
 export const ROLL_FRAMES = 180;                                   // random roll lasts 3 seconds
 export const MENU_BUTTONS = {
-  one: { x: 250, y: 120, w: 460, h: 46 }, two: { x: 250, y: 174, w: 460, h: 46 },
-  dojo: { x: 250, y: 228, w: 460, h: 42 },
-  tutorial: { x: 252, y: 282, w: 218, h: 40 }, settings: { x: 490, y: 282, w: 218, h: 40 },
+  one: { x: 250, y: 112, w: 460, h: 42 }, two: { x: 250, y: 158, w: 460, h: 42 },
+  modes: { x: 250, y: 204, w: 460, h: 42 }, dojo: { x: 250, y: 250, w: 460, h: 42 },
+  tutorial: { x: 252, y: 298, w: 218, h: 40 }, settings: { x: 490, y: 298, w: 218, h: 40 },
 };
 export const DOJO_START = { x: 345, y: 440, w: 270, h: 40 };
 export const DOJO_FIGHTER_PREV = { x: 76, y: 254, w: 44, h: 54 };
@@ -92,7 +92,22 @@ export const DIFFICULTY_INFO = [
   { name: 'HARD',   col: '#ff5a3c', tag: 'FOR A REAL TEST',  lines: ['FAST REACTIONS AND BLOCKS', 'CHAINS COMBOS, USES SUPERS', 'EXPECT NO MERCY'] },
 ];
 export const diffCardRect = i => ({ x: 96 + i * 270, y: 140, w: 250, h: 200 });
-export const MATCH_DIFF = { x: 300, y: 340, w: 360, h: 30 };      // tap target on the match-over screen (1 player only)
+export const MATCH_DIFF = { x: 300, y: 462, w: 360, h: 28 };      // tap target on the match-over screen (1 player only)
+// Match-over buttons (VS CPU and 2 Players): REMATCH / CHANGE FIGHTERS / EXIT
+export const MATCH_ITEMS = ['REMATCH', 'CHANGE FIGHTERS', 'EXIT'];
+export const matchButtonRect = i => ({ x: 300, y: 276 + i * 54, w: 360, h: 44 });
+// Stage select: explicit START button, then a loading screen
+export const THEME_START = { x: 300, y: 456, w: 360, h: 44 };
+export const LOADING_MIN = 110, LOADING_MAX = 720;                 // frames: shortest and longest the loading screen may stay up
+export const LOAD_TIPS = [
+  'HOLD V (P1) OR / (P2) TO BLOCK. STAND-BLOCK STOPS OVERHEADS, CROUCH-BLOCK STOPS SWEEPS.',
+  'CHAIN PUNCH, PUNCH, KICK FOR TRIPLE STRIKE BONUS DAMAGE.',
+  'PRESS SPECIAL RIGHT AFTER A NORMAL CONNECTS TO CANCEL INTO IT.',
+  'A FULL SUPER METER TURNS YOUR SPECIAL INTO A SUPER ART. PRESS J OR APOSTROPHE.',
+  'EVERY STAGE HAS ITS OWN BATTLE MUSIC. TRY THEM ALL.',
+];
+// Combo Dojo: what to do after a challenge is cleared
+export const dojoChoiceRect = i => ({ x: W / 2 - 200 + i * 220, y: 252, w: 180, h: 44 });
 export const SETTINGS_ITEMS = ['MUSIC VOLUME', 'UI SOUND VOLUME', 'FIGHT SFX VOLUME', 'ANNOUNCER VOICE', 'CPU DIFFICULTY', 'MASTER MUTE', 'REDUCED MOTION', 'BACK'];
 export const settingsRect = i => ({ x: 236, y: 94 + i * 48, w: 488, h: 40 });
 export const settingSliderRect = i => ({ x: 458, y: settingsRect(i).y + 14, w: 170, h: 12 });
@@ -115,3 +130,28 @@ export const THEMES = [
   { id: 'rooftop', name: 'STORM ROOFTOP',  tag: 'THUNDER OVER THE CITY', music: 'theme-rooftop.ogg', col: '#b89aff' },
 ];
 export const themeCardRect = i => ({ x: 40 + i * 180, y: 128, w: 160, h: 236 });
+
+// ---------- Arcade modes: ladder, survival, time attack, extreme battle ----------
+export const RUN_FIGHTS = 5;                                       // opponents in the Arcade Ladder and Time Attack
+export const RUN_CONTINUES = 2;                                    // Arcade Ladder only
+export const MODE_CARDS = [
+  { id: 'arcade',   name: 'ARCADE LADDER',  col: '#ff5a3c', tag: '5 FIGHTS · BEST OF 3',      lines: ['BEAT FIVE RIVALS IN A ROW', 'THE CPU GETS TOUGHER', '2 CONTINUES'] },
+  { id: 'survival', name: 'SURVIVAL',       col: '#3ddc84', tag: 'HOW LONG CAN YOU LAST?',    lines: ['ONE ROUND PER OPPONENT', 'RECOVER A LITTLE EACH WIN', 'LOSE ONCE AND IT IS OVER'] },
+  { id: 'time',     name: 'TIME ATTACK',    col: '#4dd0e1', tag: 'RACE THE CLOCK',            lines: ['5 FIGHTS · ONE ROUND EACH', 'ONLY FIGHT TIME COUNTS', 'NO CONTINUES · BEST SAVED'] },
+  { id: 'extreme',  name: 'EXTREME BATTLE', col: '#ffd23f', tag: 'THE RULES CHANGE',          lines: ['PICK A WACKY RULE', 'OR LET CHAOS PICK EACH ROUND', '1 PLAYER VS CPU'] },
+];
+export const modeCardRect = i => ({ x: 45 + i * 225, y: 118, w: 210, h: 262 });
+// Extreme Battle rules. speed/jump/grav/dmg/meter are multipliers; drain = HP lost every 40 frames (never below 1); startMeter = super meter at the start of a round.
+export const EXTREME_MODS = [
+  { id: 'lowgrav', name: 'LOW GRAVITY',  tag: 'FLOATY, LONG JUMPS',        col: '#b89aff', grav: .6 },
+  { id: 'turbo',   name: 'TURBO',        tag: 'EVERYONE RUNS 45% FASTER',  col: '#ff9a4d', speed: 1.45 },
+  { id: 'glass',   name: 'GLASS CANNON', tag: 'ALL DAMAGE x2.5',           col: '#ff4d4d', dmg: 2.5 },
+  { id: 'fever',   name: 'SUPER FEVER',  tag: 'FULL METER · FILLS 3x FAST', col: '#ffd23f', meter: 3, startMeter: 100 },
+  { id: 'drain',   name: 'SUDDEN DRAIN', tag: 'HEALTH SLOWLY DRAINS',      col: '#3ddc84', drain: 1 },
+];
+export const CHAOS = EXTREME_MODS.length;                          // pick index meaning "a different random rule every round"
+export const modRect = i => ({ x: 40 + (i % 3) * 300, y: 128 + Math.floor(i / 3) * 128, w: 280, h: 112 });
+export const MOD_START = { x: 300, y: 400, w: 360, h: 44 };
+export const runEndRect = i => ({ x: 300, y: 330 + i * 52, w: 360, h: 42 });
+export const formatTime = f => { const t = Math.floor(f / 6) / 10, m = Math.floor(t / 60); return m + ':' + (t - m * 60).toFixed(1).padStart(4, '0'); };   // frames (60/s) -> m:ss.s
+export const defaultRecords = () => ({ arcade: { clears: 0, best: null }, time: { best: null }, survival: { best: 0 } });
